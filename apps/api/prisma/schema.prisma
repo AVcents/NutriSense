@@ -1,0 +1,261 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// FOOD DATABASE MODELS (FDC, CIQUAL, FoodEx2)
+// ============================================================================
+
+model Source {
+  id          String @id @default(cuid())
+  name        String @unique // "FDC", "CIQUAL", "FoodEx2"
+  description String?
+  version     String?
+  url         String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  foodItems FoodItem[]
+
+  @@map("sources")
+}
+
+model Brand {
+  id        String @id @default(cuid())
+  name      String
+  owner     String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  foodItems FoodItem[]
+
+  @@unique([name, owner])
+  @@map("brands")
+}
+
+model TaxonomyNode {
+  id            String  @id @default(cuid())
+  code          String  @unique // FoodEx2 code (e.g., "A01AA")
+  name          String
+  description   String?
+  level         Int     // Hierarchy level (1=root, 2=group, etc.)
+  parentId      String? @map("parent_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  parent   TaxonomyNode?  @relation("TaxonomyHierarchy", fields: [parentId], references: [id])
+  children TaxonomyNode[] @relation("TaxonomyHierarchy")
+  
+  foodTaxonomies FoodTaxonomy[]
+
+  @@index([code])
+  @@index([parentId])
+  @@index([level])
+  @@map("taxonomy_nodes")
+}
+
+model FoodItem {
+  id                String   @id @default(cuid())
+  sourceId          String   @map("source_id")
+  foodCodeSource    String   @map("food_code_source") // Original code from source
+  foodCodeLocal     String?  @map("food_code_local")  // Local/normalized code
+  gtin              String?  // Global Trade Item Number (barcode)
+  name              String
+  nameScientific    String?  @map("name_scientific")
+  description       String?
+  synonyms          String[] // Array of alternative names
+  brandId           String?  @map("brand_id")
+  sourceConfidence  Float    @default(1.0) @map("source_confidence") // 0.0-1.0
+  isActive          Boolean  @default(true) @map("is_active")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  source         Source            @relation(fields: [sourceId], references: [id])
+  brand          Brand?            @relation(fields: [brandId], references: [id])
+  nutrients      FoodNutrient[]
+  taxonomies     FoodTaxonomy[]
+
+  @@unique([sourceId, foodCodeSource])
+  @@index([gtin])
+  @@index([sourceConfidence])
+  @@index([isActive])
+  @@map("food_items")
+}
+
+model Nutrient {
+  id          String @id @default(cuid())
+  code        String @unique // Standard nutrient code (e.g., "ENERC_KCAL")
+  name        String
+  unit        String // "kcal", "g", "mg", "µg", etc.
+  category    String // "Energy", "Macronutrient", "Vitamin", "Mineral"
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  foodNutrients FoodNutrient[]
+
+  @@index([category])
+  @@map("nutrients")
+}
+
+model FoodNutrient {
+  id         String  @id @default(cuid())
+  foodItemId String  @map("food_item_id")
+  nutrientId String  @map("nutrient_id")
+  value      Float   // Nutrient value per 100g
+  confidence Float   @default(1.0) // Data quality confidence 0.0-1.0
+  method     String? // Analysis method or estimation
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  foodItem FoodItem @relation(fields: [foodItemId], references: [id], onDelete: Cascade)
+  nutrient Nutrient @relation(fields: [nutrientId], references: [id])
+
+  @@unique([foodItemId, nutrientId])
+  @@index([value])
+  @@index([confidence])
+  @@map("food_nutrients")
+}
+
+model FoodTaxonomy {
+  id             String @id @default(cuid())
+  foodItemId     String @map("food_item_id")
+  taxonomyNodeId String @map("taxonomy_node_id")
+  confidence     Float  @default(1.0) // Classification confidence 0.0-1.0
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  foodItem     FoodItem     @relation(fields: [foodItemId], references: [id], onDelete: Cascade)
+  taxonomyNode TaxonomyNode @relation(fields: [taxonomyNodeId], references: [id])
+
+  @@unique([foodItemId, taxonomyNodeId])
+  @@index([confidence])
+  @@map("food_taxonomies")
+}
+
+// ============================================================================
+// EXISTING USER/PROFILE MODELS
+// ============================================================================
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  profile Profile?
+
+  @@map("users")
+}
+
+model Profile {
+  id                String   @id @default(cuid())
+  userId            String   @unique @map("user_id")
+  nom               String
+  sexe              String
+  age               Int
+  taille            Int
+  poids             Float
+  pourcentageMg     Float?   @map("pourcentage_mg")
+  lbm               Float?
+  activite          Float
+  objectif          String
+  repasParJour      Int      @map("repas_par_jour")
+  allergies         String[]
+  regimes           String[]
+  pathologies       String[]
+  alimentsAimes     String[] @map("aliments_aimes")
+  alimentsDetestes  String[] @map("aliments_detestes")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mealPlans MealPlan[]
+
+  @@map("profiles")
+}
+
+model Food {
+  id                  String   @id @default(cuid())
+  nom                 String   @unique
+  categorie           String
+  sousCategorie       String?  @map("sous_categorie")
+  kcal100g            Float    @map("kcal_100g")
+  proteines100g       Float    @map("proteines_100g")
+  glucides100g        Float    @map("glucides_100g")
+  lipides100g         Float    @map("lipides_100g")
+  fibres100g          Float    @map("fibres_100g")
+  indexGlycemique     Int?     @map("index_glycemique")
+  scoreInflammatoire  Int      @map("score_inflammatoire")
+  regimesCompatibles  String[] @map("regimes_compatibles")
+  allergenes          String[]
+  prixKg              Float?   @map("prix_kg")
+  saison              String[]
+  momentRepas         String[] @map("moment_repas")
+  preparation         String?
+  conservation        String?
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  mealItems MealItem[]
+
+  @@map("foods")
+}
+
+model MealPlan {
+  id              String   @id @default(cuid())
+  profileId       String   @map("profile_id")
+  dateDebut       DateTime @map("date_debut")
+  kcalTarget      Float    @map("kcal_target")
+  proteinesTarget Float    @map("proteines_target")
+  glucidesTarget  Float    @map("glucides_target")
+  lipidesTarget   Float    @map("lipides_target")
+  statut          String
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  meals   Meal[]
+
+  @@map("meal_plans")
+}
+
+model Meal {
+  id              String   @id @default(cuid())
+  planId          String   @map("plan_id")
+  jour            Int
+  typeRepas       String   @map("type_repas")
+  kcalTarget      Float    @map("kcal_target")
+  proteinesTarget Float    @map("proteines_target")
+  glucidesTarget  Float    @map("glucides_target")
+  lipidesTarget   Float    @map("lipides_target")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  mealPlan  MealPlan   @relation(fields: [planId], references: [id], onDelete: Cascade)
+  mealItems MealItem[]
+
+  @@unique([planId, jour, typeRepas])
+  @@map("meals")
+}
+
+model MealItem {
+  id                  String   @id @default(cuid())
+  mealId              String   @map("meal_id")
+  foodId              String   @map("food_id")
+  grammes             Float
+  kcalCalculees       Float    @map("kcal_calculees")
+  proteinesCalculees  Float    @map("proteines_calculees")
+  glucidesCalculees   Float    @map("glucides_calculees")
+  lipidesCalculees    Float    @map("lipides_calculees")
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  meal Meal @relation(fields: [mealId], references: [id], onDelete: Cascade)
+  food Food @relation(fields: [foodId], references: [id], onDelete: Restrict)
+
+  @@map("meal_items")
+}
